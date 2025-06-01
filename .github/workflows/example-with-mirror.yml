@@ -1,0 +1,55 @@
+name: Example Workflow with Yarn Mirror
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-with-mirror.yml'
+
+jobs:
+  test-mirror-setup:
+    name: Test Yarn Mirror Setup
+    runs-on: ubuntu-latest
+    steps:
+      # Option 1: Use the drop-in replacement action
+      - name: Checkout and setup with mirror
+        uses: ./.github/actions/checkout-and-setup-mirror
+        with:
+          skip-allow-scripts: true
+
+      - name: Verify Yarn setup
+        run: |
+          echo "✅ Yarn version: $(yarn --version)"
+          echo "📍 Yarn location: $(which yarn)"
+          echo "📦 Node version: $(node --version)"
+
+      - name: Run a simple Yarn command
+        run: |
+          yarn --version
+          yarn config get nodeLinker
+
+  test-direct-mirror:
+    name: Test Direct Mirror Usage
+    runs-on: ubuntu-latest
+    steps:
+      # Option 2: Use individual actions for more control
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Yarn from GitHub mirror
+        uses: ./.github/actions/setup-yarn-from-mirror
+        with:
+          yarn-version: '4.9.1'
+          node-version: '22.15'
+          skip-install: true
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run allow-scripts
+        run: yarn allow-scripts auto
+
+      - name: Display cache statistics
+        run: |
+          echo "📊 Yarn cache info:"
+          yarn cache list --json | jq length || echo "Cache is empty or jq not available"

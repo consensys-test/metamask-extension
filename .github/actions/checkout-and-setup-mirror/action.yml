@@ -1,0 +1,31 @@
+name: 'Checkout and Setup with Mirror'
+description: 'Drop-in replacement for MetaMask/action-checkout-and-setup using GitHub mirror'
+inputs:
+  skip-allow-scripts:
+    description: 'Skip yarn allow-scripts step'
+    required: false
+    default: 'false'
+  is-high-risk-environment:
+    description: 'Whether this is a high risk environment (kept for compatibility)'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Yarn from GitHub mirror
+      uses: ./.github/actions/setup-yarn-from-mirror
+      with:
+        yarn-version: '4.9.1'
+        node-version: '22.15'
+        skip-install: 'false'
+        github-token: ${{ github.token }}
+
+    - name: Run allow-scripts
+      if: ${{ inputs.skip-allow-scripts != 'true' }}
+      shell: bash
+      run: |
+        yarn allow-scripts auto

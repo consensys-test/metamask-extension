@@ -1,0 +1,54 @@
+name: 'Setup Yarn with Corepack'
+description: 'Sets up Node.js and Yarn using Corepack to avoid external downloads'
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '22.15'
+  yarn-version:
+    description: 'Yarn version to use'
+    required: false
+    default: '4.9.1'
+  cache-dependency-path:
+    description: 'Path to dependency files for caching'
+    required: false
+    default: 'yarn.lock'
+  skip-install:
+    description: 'Skip yarn install step'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'yarn'
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    - name: Enable Corepack
+      shell: bash
+      run: |
+        corepack enable
+        echo "Corepack enabled"
+
+    - name: Prepare Yarn
+      shell: bash
+      run: |
+        corepack prepare yarn@${{ inputs.yarn-version }} --activate
+        echo "Yarn ${{ inputs.yarn-version }} activated"
+
+    - name: Verify Yarn version
+      shell: bash
+      run: |
+        yarn --version
+        echo "Yarn binary location: $(which yarn)"
+
+    - name: Install dependencies
+      if: ${{ inputs.skip-install != 'true' }}
+      shell: bash
+      run: |
+        yarn install --immutable
+        echo "Dependencies installed"

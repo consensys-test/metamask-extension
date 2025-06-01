@@ -13,7 +13,7 @@ jobs:
       BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
       - name: Checkout and setup environment
-        uses: MetaMask/action-checkout-and-setup@v1
+        uses: ./.github/actions/checkout-and-setup-local
         with:
           is-high-risk-environment: false
           skip-allow-scripts: true

@@ -1,0 +1,122 @@
+name: 'Setup Yarn from GitHub Mirror'
+description: 'Sets up Yarn using mirrored binaries from GitHub releases to avoid rate limiting'
+inputs:
+  yarn-version:
+    description: 'Yarn version to use'
+    required: false
+    default: '4.9.1'
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '22.15'
+  cache-dependency-path:
+    description: 'Path to dependency files for caching'
+    required: false
+    default: 'yarn.lock'
+  skip-install:
+    description: 'Skip yarn install step'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'GitHub token for downloading from releases'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Cache Yarn binary
+      id: cache-yarn
+      uses: actions/cache@v4
+      with:
+        path: ~/.yarn/bin
+        key: yarn-binary-${{ runner.os }}-${{ inputs.yarn-version }}
+
+    - name: Download Yarn from GitHub mirror
+      if: steps.cache-yarn.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        YARN_VERSION="${{ inputs.yarn-version }}"
+        YARN_DIR="$HOME/.yarn/bin"
+        mkdir -p "$YARN_DIR"
+
+        echo "📥 Downloading Yarn v${YARN_VERSION} from GitHub releases mirror..."
+
+        # Try to download from GitHub releases first
+        if gh release download "yarn-v${YARN_VERSION}" \
+           --repo "${{ github.repository }}" \
+           --pattern "yarn-${YARN_VERSION}.js" \
+           --pattern "yarn-${YARN_VERSION}-checksums.txt" \
+           --dir "$YARN_DIR" 2>/dev/null; then
+          echo "✅ Downloaded from GitHub mirror"
+
+          # Verify checksum
+          cd "$YARN_DIR"
+          if [ -f "yarn-${YARN_VERSION}-checksums.txt" ]; then
+            echo "🔐 Verifying checksum..."
+            sha256sum -c "yarn-${YARN_VERSION}-checksums.txt" --ignore-missing || {
+              echo "❌ Checksum verification failed!"
+              exit 1
+            }
+          fi
+
+          mv "yarn-${YARN_VERSION}.js" "yarn.js"
+        else
+          echo "⚠️  GitHub mirror not available, falling back to repo.yarnpkg.com with retry logic"
+
+          # Fallback with retry logic
+          for i in {1..5}; do
+            if curl -fsSL "https://repo.yarnpkg.com/${YARN_VERSION}/packages/yarnpkg-cli/bin/yarn.js" \
+               -o "$YARN_DIR/yarn.js"; then
+              echo "✅ Downloaded from repo.yarnpkg.com on attempt $i"
+              break
+            fi
+            echo "❌ Attempt $i failed, retrying in $((2**i)) seconds..."
+            sleep $((2**i))
+          done
+        fi
+
+        # Make executable
+        chmod +x "$YARN_DIR/yarn.js"
+
+        # Create yarn wrapper script
+        cat > "$YARN_DIR/yarn" << 'EOF'
+#!/bin/sh
+exec node "$HOME/.yarn/bin/yarn.js" "$@"
+EOF
+        chmod +x "$YARN_DIR/yarn"
+
+    - name: Add Yarn to PATH
+      shell: bash
+      run: |
+        echo "$HOME/.yarn/bin" >> $GITHUB_PATH
+
+    - name: Setup Yarn cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          .yarn/cache
+          .yarn/unplugged
+        key: yarn-cache-${{ runner.os }}-${{ hashFiles(inputs.cache-dependency-path) }}
+        restore-keys: |
+          yarn-cache-${{ runner.os }}-
+
+    - name: Verify Yarn installation
+      shell: bash
+      run: |
+        echo "Yarn version: $(yarn --version)"
+        echo "Yarn location: $(which yarn)"
+
+    - name: Install dependencies
+      if: ${{ inputs.skip-install != 'true' }}
+      shell: bash
+      run: |
+        yarn install --immutable
+        echo "✅ Dependencies installed"

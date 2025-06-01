@@ -1,0 +1,51 @@
+name: 'Setup Yarn from GitHub Packages (Example)'
+description: 'Example showing complexity of using GitHub Packages for Yarn binaries'
+inputs:
+  yarn-version:
+    description: 'Yarn version to use'
+    required: false
+    default: '4.9.1'
+  github-token:
+    description: 'GitHub token for package access'
+    required: true
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.15'
+
+    - name: Configure npm for GitHub Packages
+      shell: bash
+      run: |
+        echo "@metamask:registry=https://npm.pkg.github.com" > ~/.npmrc
+        echo "//npm.pkg.github.com/:_authToken=${{ inputs.github-token }}" >> ~/.npmrc
+
+    - name: Install Yarn from GitHub Packages
+      shell: bash
+      run: |
+        # This approach has several issues:
+        # 1. Requires authentication even for public packages
+        # 2. Need to wrap yarn.js in an npm package structure
+        # 3. More complex error handling
+        # 4. Harder to cache just the binary
+
+        npm install -g @metamask/yarn-binary@${{ inputs.yarn-version }} || {
+          echo "Failed to install from GitHub Packages, falling back..."
+
+          # Fallback is more complex with packages
+          # Would need to extract from tarball, handle auth, etc.
+          curl -fsSL https://repo.yarnpkg.com/${{ inputs.yarn-version }}/packages/yarnpkg-cli/bin/yarn.js \
+            -o /usr/local/bin/yarn.js
+          chmod +x /usr/local/bin/yarn.js
+        }
+
+    - name: Complex extraction if using packages
+      shell: bash
+      run: |
+        # If we stored as a package, we'd need to extract the binary
+        # from node_modules, handle symlinks, etc.
+        # Much more complex than direct binary download

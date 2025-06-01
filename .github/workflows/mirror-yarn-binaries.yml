@@ -1,0 +1,100 @@
+name: Mirror Yarn Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      yarn-version:
+        description: 'Yarn version to mirror (e.g., 4.9.1)'
+        required: true
+        default: '4.9.1'
+  schedule:
+    # Run weekly to check for new Yarn releases
+    - cron: '0 0 * * 0'
+
+permissions:
+  contents: write
+
+jobs:
+  mirror-yarn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+
+      - name: Create yarn-binaries directory
+        run: mkdir -p yarn-binaries
+
+      - name: Download Yarn binary
+        id: download
+        run: |
+          YARN_VERSION="${{ github.event.inputs.yarn-version || '4.9.1' }}"
+          echo "version=$YARN_VERSION" >> $GITHUB_OUTPUT
+
+          # Download yarn.js
+          curl -fsSL "https://repo.yarnpkg.com/${YARN_VERSION}/packages/yarnpkg-cli/bin/yarn.js" \
+            -o "yarn-binaries/yarn-${YARN_VERSION}.js"
+
+          # Download yarn.cjs (if available)
+          curl -fsSL "https://repo.yarnpkg.com/${YARN_VERSION}/packages/yarnpkg-cli/bin/yarn.cjs" \
+            -o "yarn-binaries/yarn-${YARN_VERSION}.cjs" || true
+
+          # Create checksums
+          cd yarn-binaries
+          sha256sum yarn-*.js yarn-*.cjs 2>/dev/null > "yarn-${YARN_VERSION}-checksums.txt" || \
+          sha256sum yarn-*.js > "yarn-${YARN_VERSION}-checksums.txt"
+
+          # Create version info
+          echo "{
+            \"version\": \"${YARN_VERSION}\",
+            \"downloaded_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+            \"source\": \"https://repo.yarnpkg.com/${YARN_VERSION}/packages/yarnpkg-cli/bin/yarn.js\"
+          }" > "yarn-${YARN_VERSION}-info.json"
+
+      - name: Check if release exists
+        id: check_release
+        run: |
+          YARN_VERSION="${{ steps.download.outputs.version }}"
+          if gh release view "yarn-v${YARN_VERSION}" &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create release
+        if: steps.check_release.outputs.exists == 'false'
+        run: |
+          YARN_VERSION="${{ steps.download.outputs.version }}"
+          gh release create "yarn-v${YARN_VERSION}" \
+            --title "Yarn v${YARN_VERSION} Mirror" \
+            --notes "Mirror of Yarn v${YARN_VERSION} binaries from repo.yarnpkg.com
+
+This release contains:
+- yarn-${YARN_VERSION}.js - Main Yarn binary
+- yarn-${YARN_VERSION}.cjs - CommonJS version (if available)
+- yarn-${YARN_VERSION}-checksums.txt - SHA256 checksums
+- yarn-${YARN_VERSION}-info.json - Version metadata
+
+Original source: https://repo.yarnpkg.com/${YARN_VERSION}/packages/yarnpkg-cli/bin/yarn.js" \
+            yarn-binaries/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Update existing release
+        if: steps.check_release.outputs.exists == 'true'
+        run: |
+          YARN_VERSION="${{ steps.download.outputs.version }}"
+          # Delete existing assets
+          gh release view "yarn-v${YARN_VERSION}" --json assets -q '.assets[].name' | \
+            xargs -I {} gh release delete-asset "yarn-v${YARN_VERSION}" {} -y || true
+
+          # Upload new assets
+          gh release upload "yarn-v${YARN_VERSION}" yarn-binaries/* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
